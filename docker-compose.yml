@@ -1,0 +1,160 @@
+networks:
+  plex-net:
+    ipam:
+      config:
+        - subnet: 192.168.168.0/24
+volumes:
+  plex-media:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=<REPLACE WITH NAS HOST NAME>
+      device: :/volume2/PlexData/
+  plex-movies:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=<REPLACE WITH NAS HOST NAME>
+      device: :/volume2/PlexData/Movies
+services:
+  overseerr:
+    image: sctx/overseerr:latest
+    container_name: overseerr
+    restart: unless-stopped
+    networks:
+      - plex-net
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=${ENV_TZ}
+      - PORT=5055 #optional
+    ports:
+      - 5055:5055
+    volumes:
+      - ./config/overseerr:/app/config
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    networks:
+      - plex-net
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+    volumes:
+      - ./config/prowlarr:/config
+    ports:
+      - 9696:9696
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    restart: unless-stopped
+    networks:
+      - plex-net
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+    volumes:
+      - ./config/radarr:/config
+      - plex-movies:/movies #optional
+      - /media:/data #optional
+    ports:
+      - 7878:7878
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    restart: unless-stopped
+    networks:
+      - plex-net
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+    volumes:
+      - ./config/sonnarr:/config
+      - plex-media:/plex #optional
+      - /media/downloads:/data/downloads #optional
+    ports:
+      - 8989:8989
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    networks:
+      - plex-net
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - ./config/qbittorrent:/config
+      - /media/downloads:/data/downloads #optional
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+  prometheus:
+    image: prom/prometheus
+    container_name: unpackerr-prometheus
+    restart: unless-stopped
+    networks:
+      - plex-net
+    command:
+      - --web.enable-remote-write-receiver
+      - --enable-feature=native-histograms
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./config/prometheus:/etc/prometheus
+    ports:
+      - 9191:9090
+  unpackerr:
+    image: golift/unpackerr
+    container_name: unpackerr
+    restart: unless-stopped
+    networks:
+      - plex-net
+    volumes:
+      - ./config/unpackerr:/config
+    ports:
+      - 5656:5656
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+      - UN_LOG_FILE=/data/logs/unpackerr/unpackerr.log
+      - UN_SONARR_0_URL=http://<REPLACE WITH HOST NAME>:8989
+      - UN_SONARR_0_API_KEY=<REPLACE WITH API KEY>
+      - UN_RADARR_0_URL=http://<REPLACE WITH HOST NAME>:7878
+      - UN_RADARR_0_API_KEY=<REPLACE WITH API KEY>
+      - UN_WEBSERVER_METRICS=true
+  grafana:
+    image: grafana/grafana-oss
+    container_name: unpackerr-grafana
+    restart: unless-stopped
+    networks:
+      - plex-net
+    # if you are running as root then set it to 0
+    # else find the right id with the id -u command
+    user: "0"
+    ports:
+      - 3000:3000
+    # adding the mount volume point which we create earlier
+    volumes:
+      - ./config/grafana:/var/lib/grafana
+  tautulli:
+    image: ghcr.io/tautulli/tautulli
+    container_name: tautulli
+    restart: unless-stopped
+    networks:
+      - plex-net
+    volumes:
+      - ./config/tautulli:/config
+    environment:
+      - PUID=${ENV_PUID}
+      - PGID=${ENV_PGID}
+      - TZ=${ENV_TZ}
+    ports:
+      - 8181:8181
